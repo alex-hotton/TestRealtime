@@ -1,12 +1,12 @@
 import type { Handler } from '@netlify/functions';
 
-const handler: Handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json',
-  };
+const headers = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json',
+};
 
+const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers, body: '' };
   }
@@ -15,43 +15,74 @@ const handler: Handler = async (event) => {
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
-  const { model } = JSON.parse(event.body || '{}');
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'OPENAI_API_KEY not configured' }) };
+  }
+
+  const body = JSON.parse(event.body || '{}');
 
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return { statusCode: 500, headers, body: JSON.stringify({ error: 'OPENAI_API_KEY not configured' }) };
+    // Action 1: Create ephemeral token
+    if (body.action === 'session' || !body.action) {
+      const selectedModel = body.model || 'gpt-realtime-1.5';
+
+      const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          modalities: ['audio', 'text'],
+          voice: 'verse',
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        return { statusCode: response.status, headers, body: JSON.stringify({ error: err }) };
+      }
+
+      const data = await response.json();
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          token: data.client_secret.value,
+          model: selectedModel,
+        }),
+      };
     }
 
-    const selectedModel = model || 'gpt-realtime-1.5';
+    // Action 2: Proxy SDP exchange (avoids CORS issues in production)
+    if (body.action === 'sdp') {
+      const { sdp, token, model } = body;
 
-    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: selectedModel,
-        modalities: ['audio', 'text'],
-        voice: 'verse',
-      }),
-    });
+      const response = await fetch(`https://api.openai.com/v1/realtime?model=${model}`, {
+        method: 'POST',
+        body: sdp,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/sdp',
+        },
+      });
 
-    if (!response.ok) {
-      const err = await response.text();
-      return { statusCode: response.status, headers, body: JSON.stringify({ error: err }) };
+      if (!response.ok) {
+        const err = await response.text();
+        return { statusCode: response.status, headers, body: JSON.stringify({ error: err }) };
+      }
+
+      const answerSdp = await response.text();
+      return {
+        statusCode: 200,
+        headers: { ...headers, 'Content-Type': 'application/sdp' },
+        body: answerSdp,
+      };
     }
 
-    const data = await response.json();
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        token: data.client_secret.value,
-        model: selectedModel,
-      }),
-    };
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Unknown action' }) };
   } catch (err: any) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }

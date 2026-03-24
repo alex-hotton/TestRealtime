@@ -23,11 +23,11 @@ export function createOpenAIProvider(callbacks: RealtimeCallbacks, model?: strin
   };
 
   async function connect(instructions: string, voiceConfig: VoiceConfig) {
-    // 1. Get ephemeral token
+    // 1. Get ephemeral token via our proxy (avoids CORS)
     const res = await fetch('/.netlify/functions/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: requestedModel }),
+      body: JSON.stringify({ action: 'session', model: requestedModel }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -67,17 +67,19 @@ export function createOpenAIProvider(callbacks: RealtimeCallbacks, model?: strin
     };
     dc.onmessage = (e) => handleEvent(JSON.parse(e.data));
 
-    // 6. SDP offer
+    // 6. SDP offer — proxied through our Netlify function to avoid CORS
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    const sdpRes = await fetch(`https://api.openai.com/v1/realtime?model=${resolvedModel}`, {
+    const sdpRes = await fetch('/.netlify/functions/session', {
       method: 'POST',
-      body: offer.sdp,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/sdp',
-      },
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'sdp',
+        sdp: offer.sdp,
+        token,
+        model: resolvedModel,
+      }),
     });
     if (!sdpRes.ok) throw new Error('Failed to establish WebRTC connection');
 
