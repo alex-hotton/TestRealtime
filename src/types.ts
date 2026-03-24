@@ -2,6 +2,16 @@ export type Language = 'en' | 'fr' | 'de';
 
 export type ProviderId = 'openai' | 'openai-mini';
 
+export type Voice = 'marin' | 'cedar' | 'verse' | 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer';
+
+export interface VoiceConfig {
+  voice: Voice;
+  temperature: number;   // 0.0 - 1.5
+  empathy: number;       // 0 - 100
+  tone: number;          // 0 (formal) - 100 (casual)
+  verbosity: number;     // 0 (concise) - 100 (verbose)
+}
+
 export interface TranscriptEntry {
   id: string;
   role: 'user' | 'assistant';
@@ -18,7 +28,7 @@ export interface UsageData {
 }
 
 export interface RealtimeHandler {
-  connect(instructions: string): Promise<void>;
+  connect(instructions: string, voiceConfig: VoiceConfig): Promise<void>;
   disconnect(): void;
   mute(muted: boolean): void;
 }

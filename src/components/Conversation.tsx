@@ -138,11 +138,12 @@ export function Conversation({ provider, elapsedSeconds, usage, aiSpeaking, mute
         {isConnecting ? t('connecting') : aiSpeaking ? t('speaking') : t('listening')}
       </p>
 
-      {/* Controls */}
-      <div className="flex items-center gap-6 mb-10">
+      {/* Controls — touch-action: manipulation fixes mobile tap issues */}
+      <div className="flex items-center gap-6 mb-10" style={{ touchAction: 'manipulation' }}>
         <button
           onClick={onMute}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+          onTouchEnd={(e) => { e.preventDefault(); onMute(); }}
+          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all select-none ${
             muted
               ? 'bg-red-500 text-white shadow-lg'
               : 'bg-white border border-border text-content-secondary hover:bg-surface-tertiary shadow-subtle'
@@ -154,7 +155,8 @@ export function Conversation({ provider, elapsedSeconds, usage, aiSpeaking, mute
 
         <button
           onClick={onEnd}
-          className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-all shadow-lg hover:shadow-xl active:scale-95"
+          onTouchEnd={(e) => { e.preventDefault(); onEnd(); }}
+          className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-all shadow-lg hover:shadow-xl active:scale-95 select-none"
           title={t('endConversation')}
         >
           <Square className="w-5 h-5 fill-current" />

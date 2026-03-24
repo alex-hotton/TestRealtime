@@ -1,19 +1,74 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useI18n } from './i18n';
-import type { ProviderId, AppStep, RealtimeHandler, RealtimeCallbacks, UsageData } from './types';
+import type { ProviderId, AppStep, RealtimeHandler, RealtimeCallbacks, UsageData, VoiceConfig } from './types';
 import { Header } from './components/Header';
 import { ProviderCard } from './components/ProviderCard';
+import { ConfigPanel } from './components/ConfigPanel';
 import { Conversation } from './components/Conversation';
 import { createOpenAIProvider } from './providers/openai';
-import { ArrowLeft, Play, AlertCircle } from 'lucide-react';
+import { ArrowLeft, AlertCircle } from 'lucide-react';
 
 const PROVIDERS: ProviderId[] = ['openai', 'openai-mini'];
+
+const DEFAULT_VOICE_CONFIG: VoiceConfig = {
+  voice: 'marin',
+  temperature: 0.8,
+  empathy: 50,
+  tone: 50,
+  verbosity: 30,
+};
+
+/**
+ * Build system instructions from user text + slider values.
+ * The sliders inject behavioral directives into the prompt.
+ */
+function buildInstructions(userText: string, vc: VoiceConfig): string {
+  const parts: string[] = [];
+
+  if (userText.trim()) {
+    parts.push(userText.trim());
+  } else {
+    parts.push('You are a helpful assistant.');
+  }
+
+  // Empathy
+  if (vc.empathy < 20) {
+    parts.push('Be direct and matter-of-fact. Avoid emotional language.');
+  } else if (vc.empathy > 80) {
+    parts.push('Be very empathetic and warm. Show genuine care and emotional understanding. Acknowledge feelings before responding.');
+  } else if (vc.empathy > 60) {
+    parts.push('Be empathetic and considerate in your responses.');
+  }
+
+  // Tone
+  if (vc.tone < 20) {
+    parts.push('Use a formal, professional tone. Avoid slang and colloquialisms.');
+  } else if (vc.tone > 80) {
+    parts.push('Be very casual and friendly. Use conversational language, contractions, and a relaxed tone.');
+  } else if (vc.tone > 60) {
+    parts.push('Use a friendly, conversational tone.');
+  }
+
+  // Verbosity
+  if (vc.verbosity < 20) {
+    parts.push('Be extremely concise. Use as few words as possible. One or two sentences max.');
+  } else if (vc.verbosity < 40) {
+    parts.push('Keep responses short and to the point.');
+  } else if (vc.verbosity > 80) {
+    parts.push('Give detailed, thorough responses. Elaborate and explain your reasoning.');
+  } else if (vc.verbosity > 60) {
+    parts.push('Provide moderately detailed responses with some explanation.');
+  }
+
+  return parts.join('\n\n');
+}
 
 export default function App() {
   const { t } = useI18n();
   const [step, setStep] = useState<AppStep>('select');
   const [provider, setProvider] = useState<ProviderId | null>(null);
   const [instructions, setInstructions] = useState('');
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>(DEFAULT_VOICE_CONFIG);
   const [muted, setMuted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [usage, setUsage] = useState<UsageData | null>(null);
@@ -25,25 +80,17 @@ export default function App() {
 
   const createCallbacks = useCallback((): RealtimeCallbacks => ({
     onTranscript() {},
-    onUsageUpdate(u) {
-      setUsage({ ...u });
-    },
-    onAiSpeaking(speaking) {
-      setAiSpeaking(speaking);
-    },
+    onUsageUpdate(u) { setUsage({ ...u }); },
+    onAiSpeaking(speaking) { setAiSpeaking(speaking); },
     onError(msg) {
       setError(msg);
       stopSession();
     },
     onConnected() {
       setStep('active');
-      timerRef.current = setInterval(() => {
-        setElapsed((s) => s + 1);
-      }, 1000);
+      timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
     },
-    onDisconnected() {
-      stopSession();
-    },
+    onDisconnected() { stopSession(); },
   }), []);
 
   function stopSession() {
@@ -67,11 +114,12 @@ export default function App() {
       callbacks,
       provider === 'openai-mini' ? 'gpt-realtime-mini' : undefined,
     );
-
     handlerRef.current = handler;
 
+    const finalInstructions = buildInstructions(instructions, voiceConfig);
+
     try {
-      await handler.connect(instructions || 'You are a helpful assistant. Be concise and friendly.');
+      await handler.connect(finalInstructions, voiceConfig);
     } catch (err: any) {
       setError(err.message);
       setStep('configure');
@@ -137,26 +185,13 @@ export default function App() {
               {t('back')}
             </button>
 
-            <div className="bg-white rounded-2xl border border-border p-6 shadow-card">
-              <label className="block text-sm font-medium text-content-primary mb-2">
-                {t('personality')}
-              </label>
-              <textarea
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-                placeholder={t('personalityPlaceholder')}
-                rows={5}
-                className="w-full px-4 py-3 rounded-xl border border-border bg-surface-secondary text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent resize-none transition-all"
-              />
-
-              <button
-                onClick={startSession}
-                className="mt-5 w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-all shadow-subtle hover:shadow-card"
-              >
-                <Play className="w-4 h-4" />
-                {t('startConversation')}
-              </button>
-            </div>
+            <ConfigPanel
+              instructions={instructions}
+              onInstructionsChange={setInstructions}
+              voiceConfig={voiceConfig}
+              onVoiceConfigChange={setVoiceConfig}
+              onStart={startSession}
+            />
           </div>
         )}
 
